@@ -2,6 +2,7 @@ from setuptools import setup
 
 setup(
     name="intruder",
+    description="HTTP/HTTPS request fuzzer",
     version="0.1.2",
 
     url='https://github.com/lpiekarski/intruder',
@@ -14,4 +15,7 @@ setup(
             'intruder=intruder:main',
         ],
     },
+    install_requires=[
+        "tqdm>=4.64.1"
+    ]
 )

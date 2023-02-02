@@ -77,7 +77,13 @@ def get_request():
 def get_wordlist_lines():
     global bar
     total = reduce(operator.mul, [len(open(filename, "r").readlines()) for filename in fuzz_dict.values()])
-    bar = tqdm(total=total, unit=" requests", ncols=23 + 20 * len(fuzz_dict.keys()))
+    bar = tqdm(
+        total=total,
+        unit=" requests",
+        ncols=23 + 20 * len(fuzz_dict.keys()),
+        initial=0,
+        colour="green" if color_output else None
+    )
     files = [open(filename, "r") for filename in fuzz_dict.values()]
     lines = [f.readline() for f in files]
     yield lines

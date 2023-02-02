@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="intruder",
-    version="0.1.0",
+    version="0.1.1",
 
     url='https://github.com/lpiekarski/intruder',
     author='Łukasz Piekarski',

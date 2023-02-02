@@ -1,10 +1,12 @@
 import http.client
 import argparse
 import operator
+import re
 import sys
 import threading
 import time
 from functools import reduce
+from urllib.parse import quote
 
 from tqdm.auto import tqdm
 
@@ -22,9 +24,13 @@ parser.add_argument("-d", metavar="<float>", help="Delay between requests in sec
 parser.add_argument("-t", metavar="<int>", help="Number of threads", default="40")
 parser.add_argument("-p", metavar="<protocol>", help="Protocol (http or https)", default="http")
 parser.add_argument("-c", help="Color output", action="store_true")
+parser.add_argument("-m", metavar="<regex>", help="Match regex in content body")
 
 bar = None
 args = parser.parse_args()
+match_regex = args.m
+if match_regex is not None:
+    match_regex = re.compile(match_regex)
 if "," in args.w:
     fuzz_dict = {fuzz[0]: fuzz[1] for fuzz in [fuzz.split(":", 1) for fuzz in args.w.split(",")]}
 else:
@@ -101,6 +107,13 @@ def get_wordlist_lines():
         lines[-1] = files[-1].readline()
 
 
+def add_content_length(req_str):
+    headers, content = req_str.split("\r\n\r\n", 1)
+    content_length = len(content.removesuffix("\r\n\r\n"))
+    req_str = headers + f"\r\nContent-Length: {content_length}\r\n\r\n" + content
+    return req_str
+
+
 wordlist_lines = get_wordlist_lines()
 request_str = get_request()
 
@@ -110,15 +123,16 @@ def intruder_runner():
         lock.acquire()
         try:
             lines = [line.rstrip() for line in next(wordlist_lines)]
+            if time_delay > 0:
+                time.sleep(time_delay)
         except StopIteration:
+            return
+        finally:
             lock.release()
-            break
-        if time_delay > 0:
-            time.sleep(time_delay)
-        lock.release()
         request_str_fuzzed = request_str
         for fuzz_str, fuzz_value in zip(fuzz_dict.keys(), lines):
-            request_str_fuzzed = request_str_fuzzed.replace(fuzz_str, fuzz_value)
+            request_str_fuzzed = request_str_fuzzed.replace(fuzz_str, quote(fuzz_value))
+        request_str_fuzzed = add_content_length(request_str_fuzzed)
         method = request_str_fuzzed.split(" ", 1)[0]
         client = connection_class(host)
         client.connect()
@@ -135,13 +149,22 @@ def intruder_runner():
         except:
             response.close()
             raise
-        response_payload = response.read()
+        content_length = response.getheader("Content-Length")
+        regex_found = ""
+        if match_regex is not None:
+            response_payload = response.read()
+            if match_regex.search(response_payload.decode("utf-8")):
+                regex_found = f"{'True':<8}"
+            else:
+                regex_found = f"{'False':<8}"
         print_lock.acquire()
-        fuzz_values = "".join([f"{repr(fuzz_value)[1:-1] if len(fuzz_value) < 20 else repr(fuzz_value[:16])[1:-1] + '...':<20}" for fuzz_value in lines])
-        status = f"{response.status:<7}"
-        tqdm.write(f"{fuzz_values}{c(status)}{len(response_payload):<8}{response_payload.count(b' '):<8}")
-        bar.update()
-        print_lock.release()
+        try:
+            fuzz_values = "".join([f"{repr(fuzz_value)[1:-1] if len(fuzz_value) < 20 else repr(fuzz_value[:16])[1:-1] + '...':<20}" for fuzz_value in lines])
+            status = f"{response.status:<7}"
+            tqdm.write(f"{fuzz_values}{c(status)}{content_length:<8}{regex_found}")
+            bar.update()
+        finally:
+            print_lock.release()
         client.close()
 
 
@@ -151,7 +174,9 @@ def main():
         thread = threading.Thread(target=intruder_runner)
         threads.append(thread)
     fuzz_strs = "".join([f"{fuzz_str:<20}" for fuzz_str in fuzz_dict.keys()])
-    header_str = f"{fuzz_strs}{'Status':<7}{'Size':<8}{'Words':<8}"
+    header_str = f"{fuzz_strs}{'Status':<7}{'Size':<8}"
+    if match_regex is not None:
+        header_str += f"{match_regex.pattern:<8}"
     if color_output:
         print("\033[1m" + header_str + "\033[0m")
     else:

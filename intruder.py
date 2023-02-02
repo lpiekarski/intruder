@@ -1,8 +1,12 @@
 import http.client
 import argparse
+import operator
 import sys
 import threading
 import time
+from functools import reduce
+
+from tqdm.auto import tqdm
 
 parser = argparse.ArgumentParser(
     prog="intruder",
@@ -19,6 +23,7 @@ parser.add_argument("-t", metavar="<int>", help="Number of threads", default="40
 parser.add_argument("-p", metavar="<protocol>", help="Protocol (http or https)", default="http")
 parser.add_argument("-c", help="Color output", action="store_true")
 
+bar = None
 args = parser.parse_args()
 if "," in args.w:
     fuzz_dict = {fuzz[0]: fuzz[1] for fuzz in [fuzz.split(":", 1) for fuzz in args.w.split(",")]}
@@ -70,6 +75,9 @@ def get_request():
 
 
 def get_wordlist_lines():
+    global bar
+    total = reduce(operator.mul, [len(open(filename, "r").readlines()) for filename in fuzz_dict.values()])
+    bar = tqdm(total=total, unit=" requests", ncols=23 + 20 * len(fuzz_dict.keys()))
     files = [open(filename, "r") for filename in fuzz_dict.values()]
     lines = [f.readline() for f in files]
     yield lines
@@ -125,7 +133,8 @@ def intruder_runner():
         print_lock.acquire()
         fuzz_values = "".join([f"{repr(fuzz_value)[1:-1] if len(fuzz_value) < 20 else repr(fuzz_value[:16])[1:-1] + '...':<20}" for fuzz_value in lines])
         status = f"{response.status:<7}"
-        print(f"{fuzz_values}{c(status)}{len(response_payload):<8}{response_payload.count(b' '):<8}")
+        tqdm.write(f"{fuzz_values}{c(status)}{len(response_payload):<8}{response_payload.count(b' '):<8}")
+        bar.update()
         print_lock.release()
         client.close()
 

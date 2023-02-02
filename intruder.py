@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(
     add_help=False
 )
 parser.add_argument("--help", action="help")
-parser.add_argument("-w", help="Wordlist file")
+parser.add_argument("-w", help="Wordlist file or comma separated list eg: USER:path/to/wordlist1.txt,PASS:path/to/wordlist2.txt")
 parser.add_argument("-r", help="Request file")
 parser.add_argument("-h", help="Host")
 parser.add_argument("-d", help="Delay between requests in seconds", default="0")
@@ -19,14 +19,17 @@ parser.add_argument("-t", help="Number of threads", default="40")
 parser.add_argument("-p", help="Protocol (http or https)", default="http")
 
 args = parser.parse_args()
-wordlist_file = args.w
+if "," in args.w:
+    fuzz_dict = {fuzz[0]: fuzz[1] for fuzz in [fuzz.split(":", 1) for fuzz in args.w.split(",")]}
+else:
+    fuzz_dict = {"FUZZ": args.w}
 request_file = args.r
 host = args.h
 num_threads = int(args.t)
 time_delay = float(args.d)
 protocol = args.p
 lock = threading.Lock()
-printlock = threading.Lock()
+print_lock = threading.Lock()
 if protocol == "http":
     response_class = http.client.HTTPResponse
     connection_class = http.client.HTTPConnection
@@ -49,34 +52,42 @@ def get_request():
         return content
 
 
+def get_wordlist_lines():
+    files = [open(filename, "r") for filename in fuzz_dict.values()]
+    lines = [f.readline() for f in files]
+    yield lines
+    while True:
+        idx = len(lines) - 1
+        while lines[idx] == "" and idx > 0:
+            files[idx].close()
+            files[idx] = open(list(fuzz_dict.values())[idx], "r")
+            lines[idx] = files[idx].readline()
+            lines[idx - 1] = files[idx - 1].readline()
+            idx -= 1
+        if lines[idx] == "" and idx == 0:
+            break
+        yield lines
+        lines[-1] = files[-1].readline()
+
+
+wordlist_lines = get_wordlist_lines()
 request_str = get_request()
-
-
-def get_wordlist_line():
-    with open(wordlist_file, "r") as f:
-        while True:
-            line = f.readline()
-            if line == "":
-                break
-            yield line
-
-
-wordlist_lines = get_wordlist_line()
 
 
 def intruder_runner():
     while True:
         lock.acquire()
         try:
-            fuzz = next(wordlist_lines)
-            fuzz = fuzz.rstrip()
+            lines = [line.rstrip() for line in next(wordlist_lines)]
         except StopIteration:
             lock.release()
             break
         if time_delay > 0:
             time.sleep(time_delay)
         lock.release()
-        request_str_fuzzed = request_str.replace("FUZZ", fuzz)
+        request_str_fuzzed = request_str
+        for fuzz_str, fuzz_value in zip(fuzz_dict.keys(), lines):
+            request_str_fuzzed = request_str_fuzzed.replace(fuzz_str, fuzz_value)
         method = request_str_fuzzed.split(" ", 1)[0]
         client = connection_class(host)
         client.connect()
@@ -94,9 +105,10 @@ def intruder_runner():
             response.close()
             raise
         response_payload = response.read()
-        printlock.acquire()
-        print(f"{fuzz:<30}{response.status:>4}{response.length:>8}{response_payload.count(b' '):>8}")
-        printlock.release()
+        print_lock.acquire()
+        fuzz_values = "".join([f"{fuzz_value:<30}" for fuzz_value in lines])
+        print(f"{fuzz_values}{response.status:>4}{response.length:>8}{response_payload.count(b' '):>8}")
+        print_lock.release()
         client.close()
 
 
@@ -105,7 +117,8 @@ def main():
     for _ in range(num_threads):
         thread = threading.Thread(target=intruder_runner)
         threads.append(thread)
-    print(f"{'Payload':<30}{'Status':>4}{'Size':>8}{'Words':>8}")
+    fuzz_strs = "".join([f"{fuzz_str:<30}" for fuzz_str in fuzz_dict.keys()])
+    print(f"{fuzz_strs}{'Status':>4}{'Size':>8}{'Words':>8}")
     for thread in threads:
         thread.start()
     for thread in threads:

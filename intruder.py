@@ -122,7 +122,7 @@ def intruder_runner():
     while True:
         lock.acquire()
         try:
-            lines = [line.rstrip() for line in next(wordlist_lines)]
+            lines = [line.removesuffix("\r\n").removesuffix("\n") for line in next(wordlist_lines)]
             if time_delay > 0:
                 time.sleep(time_delay)
         except StopIteration:

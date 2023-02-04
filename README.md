@@ -34,4 +34,3 @@ Accept-Language: pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7
 Connection: close
 ```
 Notice the `FUZZ` keyword in `User-Agent` header. This value will be replaced in requests with lines from wordlist one-by-one.
-Also, you should remove content-length header - it will be added automatically with the value adjusted to the potentially fuzzed content.

@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="intruder",
     description="HTTP/HTTPS request fuzzer",
-    version="0.1.3",
+    version="0.1.4",
 
     url='https://github.com/lpiekarski/intruder',
     author='Łukasz Piekarski',
